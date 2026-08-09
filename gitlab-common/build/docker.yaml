@@ -1,0 +1,46 @@
+---
+
+.build:image:docker:
+  stage: 'build'
+  tags:
+    - 'docker'
+
+  image: '${AWS_ECR_REGISTRY}/runner/docker:1.0'
+  variables:
+    # DOCKER_DRIVER: 'overlay'
+    # DOCKER_HOST: 'tcp://localhost:2375'
+    # DOCKER_TLS_CERTDIR: ''
+    DOCKER_FILE: '.deploy/Dockerfile'
+    APP: '${APPLICATION}'
+
+  services:
+    # - name: 'docker:19.03.12-dind'
+    - name: 'docker:dind'
+      alias: 'docker'
+      # entrypoint: ["env", "-u", "DOCKER_HOST"]
+      # command: ["dockerd-entrypoint.sh"]
+
+  before_script:
+    - 'docker version'
+    - 'export APPLICATION=${APP}'
+    - !reference [.set_imageName, before_script]
+
+  script:
+    - 'docker pull ${IMAGE_NAME}:latest || true'
+    # - 'docker build -f <(envsubst < Dockerfile) -t my-target .'
+    - >
+      docker build \
+        --pull \
+        --build-arg TAG=${TAG} \
+        --cache-from ${IMAGE_NAME}:latest \
+        --tag ${IMAGE_NAME}:${TAG} -f ${DOCKER_FILE} \
+        .
+    - 'docker push ${IMAGE_NAME}:${TAG}'
+
+    - >
+      if [[ "$CI_COMMIT_REF_NAME" == "$CI_DEFAULT_BRANCH" ]]; then
+        # if [[ "$CI_COMMIT_TAG" ]]; then
+        # if [[ "$CI_COMMIT_REF_NAME" == "$CI_DEFAULT_BRANCH" ]]; then
+        docker tag ${IMAGE_NAME}:${TAG} ${IMAGE_NAME}:latest
+        docker push ${IMAGE_NAME}:latest;
+      fi

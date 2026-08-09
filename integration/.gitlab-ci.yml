@@ -1,0 +1,56 @@
+workflow:
+  rules:
+    - if: '$RUN_RELEASE_BRANCHES == "true"'
+    - if: '$RUN_RELEASE_TAGS == "true"'
+    - if: '$RUN_SET_CURRENT_RELEASE == "true"'
+    - if: '$RUN_SET_HOTFIX_REF == "true"'
+    - when: never
+
+include:
+  - project: 'example-org/devops/cicd/gitlab-common'
+    file: ['main.yaml']
+    ref: 'main'
+
+release:create-branches:
+  stage: release
+  script:
+    - ./release/script.sh
+  variables:
+    REPO_LIST: ""
+    VERSION: ""
+  rules:
+    - if: '$RUN_RELEASE_BRANCHES == "true"'
+    - when: never
+
+release:tag-release:
+  stage: release
+  script:
+    - ./release/tag-release.sh
+  variables:
+    REPO_LIST: ""
+    VERSION: ""
+  rules:
+    - if: '$RUN_RELEASE_TAGS == "true"'
+    - when: never
+
+release:set-current-release:
+  stage: release
+  script:
+    - ./release/set-current-release.sh
+  variables:
+    VERSION: ""
+    REPO_LIST: ""
+  rules:
+    - if: '$RUN_SET_CURRENT_RELEASE == "true"'
+    - when: never
+
+release:set-hotfix-ref:
+  stage: release
+  script:
+    - ./release/set-hotfix-ref.sh
+  variables:
+    HOTFIX_REF: ""
+    REPO_LIST: ""
+  rules:
+    - if: '$RUN_SET_HOTFIX_REF == "true"'
+    - when: never

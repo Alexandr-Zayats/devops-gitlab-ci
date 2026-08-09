@@ -1,0 +1,17 @@
+---
+
+before_script:
+  - |
+    set -e
+    if [ -z $GRADLE_USER_HOME ]; then
+      export GRADLE_USER_HOME="$HOME/.gradle"
+    fi
+    mkdir -p $GRADLE_USER_HOME
+  - |
+    echo "<<-EOF
+    mavenReadS3AccessKey=$MAVEN_AWS_READ_KEY
+    mavenReadS3SecretKey=$MAVEN_READ_PASSWORD
+    mavenWriteS3AccessKey=$MAVEN_AWS_WRITE_KEY
+    mavenWriteS3SecretKey=$MAVEN_WRITE_PASSWORD
+    dockerUrl=tcp://docker/
+    EOF" > $GRADLE_USER_HOME/gradle.properties

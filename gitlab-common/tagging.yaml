@@ -1,0 +1,23 @@
+---
+
+.set_release_tag: &set_release_tag
+  - |
+    if [ -n "$CI_MERGE_REQUEST_TITLE" ]; then
+      export RELEASE_TAG="$CI_MERGE_REQUEST_TITLE"
+    else
+      export RELEASE_TAG="$CI_COMMIT_TITLE"
+    fi
+  - echo "RELEASE_TAG is $RELEASE_TAG"
+
+tagging:
+  stage: build
+  only:
+    - master
+  before_script:
+    - project_url=$(echo $CI_PROJECT_URL | sed 's/https:\/\///')
+    - git remote set-url origin https://oauth2:$CI_ACCESS_TOKEN@$project_url
+  script:
+    - echo "Build and tag the commit"
+    - tag=$(date '+%Y-%m-%d_%H-%M')
+    - git tag -f $tag
+    - git push origin $tag

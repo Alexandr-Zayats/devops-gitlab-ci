@@ -1,0 +1,122 @@
+---
+workflow:
+  rules:
+    # Prevent branch pipelines when an open Merge Request exists
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_OPEN_MERGE_REQUESTS'
+      when: 'never'
+    
+    # Prevent pipelines for MR to not to Default Branch
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME != $CI_DEFAULT_BRANCH'
+      when: 'never'
+
+    # Allow pipeline triggered from another project
+    - if: '$CI_PIPELINE_SOURCE == "pipeline" || $CI_PIPELINE_SOURCE == "trigger"'
+      variables:
+        !reference ['.vars:service', 'variables']
+
+    # Pipeline triggered manualy (test).
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      variables:
+        !reference ['.vars:test', 'variables']
+
+    # Pipeline triggered by a scheduled job (GitLab CI schedule).
+    # Typically used for periodic tasks such as:
+    # - nightly builds
+    # - dependency updates
+    # - security scans
+    # Dev environment variables are applied.
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      variables:
+        !reference ['.vars:dev', 'variables']
+
+    # Pipeline triggered by a release or hotfix tag.
+    #
+    # Tag format must match:
+    #   X.Y.Z.TIMESTAMP-(RELEASE|HOTFIX)
+    #
+    # Example:
+    #   1.16.3.202403041230-RELEASE
+    #   1.16.3.202403041230-HOTFIX
+    #
+    # This pipeline usually targets the staging environment.
+    - if: '$CI_COMMIT_TAG =~ /^[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,4}\.[0-9]{10,16}-(RELEASE|HOTFIX)(-[A-Z0-9]+)*$/'
+      variables:
+        !reference ['.vars:stg', 'variables']
+
+    # Pipeline for feature or bugfix branches within a Merge Request.
+    #
+    # Conditions:
+    # - branch name contains "feature" or "bugfix"
+    # - pipeline is running in the context of a Merge Request
+    #
+    # Commonly used for:
+    # - automated testing
+    # - preview environments
+    # - pre-merge validation
+    - if: '$CI_COMMIT_REF_SLUG =~ /(feature|bugfix)/ && $CI_MERGE_REQUEST_ID'
+      variables:
+        !reference ['.vars:feature', 'variables']
+
+    # Pipeline for the main release branch.
+    #
+    # Conditions:
+    # - current branch matches CURRENT_RELEASE
+    # - no hotfix branch is defined
+    #
+    # Used for standard release deployment workflows.
+    - if: '$CI_COMMIT_REF_NAME == $CURRENT_RELEASE && $HOTFIX_REF == ""'
+      variables:
+        !reference ['.vars:release', 'variables']
+
+    # Pipeline for a hotfix branch.
+    #
+    # If the current branch matches HOTFIX_REF,
+    # a release pipeline is executed to deliver urgent fixes.
+    - if: '$CI_COMMIT_REF_NAME == $HOTFIX_REF'
+      variables:
+        !reference ['.vars:release', 'variables']
+
+    # Pipeline triggered by a Merge Request event.
+    #
+    # Conditions:
+    # - pipeline source is a Merge Request
+    # - MR target branch is the default branch (e.g. main/master)
+    # - source branch is feature or bugfix
+    #
+    # Used to validate changes before merging into the main branch.
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == $CI_DEFAULT_BRANCH && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /(feature|bugfix)/'
+      variables:
+        !reference ['.vars:feature', 'variables']
+
+    # Pipeline triggered by a push to the default branch.
+    #
+    # Typically occurs after a Merge Request is merged.
+    # This pipeline usually:
+    # - builds the project
+    # - runs integration tests
+    # - deploys to the development environment
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      variables:
+        !reference ['.vars:dev', 'variables']
+
+    # Pipeline triggered by another pipeline (parent/child pipeline architecture).
+    #
+    # Used when a pipeline triggers downstream pipelines
+    # in the same project.
+    - if: '$CI_PIPELINE_SOURCE == "parent_pipeline"'
+
+    # Pipeline triggered externally via trigger token or API.
+    #
+    # Often used for:
+    # - cross-project pipelines
+    # - automation systems
+    # - deployment orchestrators
+    - if: '$CI_PIPELINE_SOURCE == "trigger"'
+
+    # Default fallback rule.
+    #
+    # If none of the rules above match,
+    # the pipeline will not be created.
+    # This prevents accidental pipeline runs
+    # for unsupported branches or events.
+    - when: 'never'

@@ -1,0 +1,27 @@
+---
+.tests:api:
+  image: '${AWS_ECR_REGISTRY}/tools/node:22.003'
+  stage: 'test'
+  pages: true
+
+  variables:
+    ENV: 'test'
+
+  before_script:
+    - mkdir -p public
+    - mkdir -p newman/allure_results
+
+  script:
+    - ./scripts/run_api_tests.sh
+
+  artifacts:
+    when: always
+    reports:
+      dotenv: slack.env
+    paths:
+      - public
+    expire_in: '1 week'
+
+  rules:
+    - if: '$CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "parent_pipeline"'

@@ -1,0 +1,55 @@
+---
+
+.check:destroy:env:
+  stage: 'build'
+  allow_failure: true
+  extends:
+    - '.k8s:init'
+  artifacts:
+    when: always
+    reports:
+      dotenv: check.env
+  script:
+    - |
+      check_env_file="${CI_PROJECT_DIR}/check.env"
+      {
+        echo "CHECK_STATUS=0"
+        echo "CHECK_ENV="
+        echo "CHECK_ISSUES="
+        echo "CHECK_MESSAGE=Feature env cleanup check passed"
+      } > "${check_env_file}"
+
+      merged=$(curl -s --header "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
+        "https://gitlab.com/api/v4/projects/${CI_PROJECT_ID}/merge_requests?state=merged&order_by=updated_at&sort=desc&per_page=1" \
+        | jq -r '.[0].source_branch' | tr '[:upper:]' '[:lower:]' | grep -o -E 'kan-[0-9]+' | tr '\n' ' ' | sed 's/ //g' | sort -u) || true
+
+      if [[ -z "${merged}" ]]; then
+        echo "No merged feature branch detected for cleanup check"
+        exit 0
+      fi
+
+      echo "CHECK_ENV=${merged}" >> "${check_env_file}"
+
+      issues=()
+
+      git clone "$FEATURE_REPO" features-check >/dev/null 2>&1 || issues+=("features_repo:clone_failed")
+      if [[ -d features-check ]]; then
+        cd features-check
+        compgen -G "${merged}-*" >/dev/null && issues+=("features_repo:${merged}-apps.yaml_present")
+        compgen -G "destroyed/${merged}-*" >/dev/null && issues+=("features_repo:destroyed/${merged}-apps.yaml_present")
+        cd "${CI_PROJECT_DIR}"
+      fi
+
+      if aws s3 ls "s3://${S3_BUCKET}/${merged}/" --recursive 2>/dev/null | head -n1 | grep -q .; then
+        issues+=("s3:${merged}_prefix_not_empty")
+      fi
+
+      if ((${#issues[@]} > 0)); then
+        issues_csv=$(IFS=,; echo "${issues[*]}")
+        {
+          echo "CHECK_STATUS=1"
+          echo "CHECK_ISSUES=${issues_csv}"
+          echo "CHECK_MESSAGE=Feature env cleanup check failed for ${merged}. Remaining resources: ${issues_csv}"
+        } >> "${check_env_file}"
+        exit 1
+      fi

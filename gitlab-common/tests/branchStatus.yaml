@@ -1,0 +1,42 @@
+---
+
+.branch:status:
+  stage: '.pre'
+  interruptible: true
+  rules:
+    # - if: '$CI_OPEN_MERGE_REQUESTS != null'
+    - if: '$CI_MERGE_REQUEST_IID'
+
+  script:
+    - 'git fetch'
+    - |
+      DST_BRANCH=$(curl --header "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/merge_requests/$CI_MERGE_REQUEST_IID/changes" | \
+        jq -r .target_branch)
+    - 'printf "${Blue}MR DESTINATION BRANCH: \"$DST_BRANCH\"\n"'
+    - |
+      SOURCE_BRANCH=$(curl --header "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/merge_requests/$CI_MERGE_REQUEST_IID/changes" | \
+        jq -r .source_branch | awk '{print tolower($0)}' | tr -d '\n')
+    - 'printf "${Blue}MR SOURCE BRANCH: \"$SOURCE_BRANCH\"\n"'
+    - |
+      bash -c \
+      "if [[ '${SOURCE_BRANCH}' != null ]]; then
+        if [[ '${SOURCE_BRANCH}' =~ $BRANCH_TEMPLATE ]]; then
+          printf \"${Blue}branch '${SOURCE_BRANCH}' meets naming criteria.${NC}\n\"
+        else
+          printf \"${RED}ERROR: ${Blue}branch '${SOURCE_BRANCH}' does not meet naming criteria.
+          Branch name must comply ${BRANCH_TEMPLATE}${NC}\n\";
+          exit 1
+        fi
+      fi"
+    - |
+      if [[ "${DST_BRANCH}" != "null" ]]; then
+        lastCommit=$(git ls-remote $CI_REPOSITORY_URL | grep refs/heads/${DST_BRANCH}\$ | cut -f 1)
+        check=$(git rev-list HEAD..${lastCommit})
+        if [[ "${check}" != "" ]]; then
+          printf "${RED}ERROR: ${Blue}destination branch '${DST_BRANCH}'
+          is behind source branch '${SOURCE_BRANCH}'${NC}\n";
+          exit 1
+        fi
+      fi

@@ -1,0 +1,13 @@
+---
+
+.before_script:node:
+  variables:
+    BUILD_PATH: ''
+  interruptible: true
+  before_script:
+    - !reference [.set_TAG, before_script]
+    # - !reference [.npm, script]
+    - |
+      if [ "${BUILD_PATH}" != "" ]; then
+        cd ${BUILD_PATH}
+      fi

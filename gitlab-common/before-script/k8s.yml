@@ -1,0 +1,15 @@
+---
+
+.before_script:k8s:
+  interruptible: true
+  variables:
+    AWS_ROLE_ARN: 'arn:aws:iam::${AWS_ACCOUNT_ID}:role/OrganizationAccountAccessRole'
+    CLUSTER_NAME: '${EKS_CLUSTER}'
+    REGION: 'us-east-1'
+  before_script:
+    - 'creds=$(aws sts assume-role --role-arn "$AWS_ROLE_ARN" --role-session-name gitlab-flux-session)'
+    - 'export AWS_ACCESS_KEY_ID=$(echo $creds | jq -r ".Credentials.AccessKeyId")'
+    - 'export AWS_SECRET_ACCESS_KEY=$(echo $creds | jq -r ".Credentials.SecretAccessKey")'
+    - 'export AWS_SESSION_TOKEN=$(echo $creds | jq -r ".Credentials.SessionToken")'
+    - 'aws eks update-kubeconfig --name ${CLUSTER_NAME} --region ${REGION}'
+    - 'kubectl version'

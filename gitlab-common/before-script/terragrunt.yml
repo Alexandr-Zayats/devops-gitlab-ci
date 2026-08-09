@@ -1,0 +1,21 @@
+---
+
+.before_script:terragrunt:
+  interruptible: false
+  tags:
+    - 'base'
+  variables:
+    TG_PROVIDER_CACHE: 'true'
+    TG_PROVIDER_CACHE_DIR: '${CI_PROJECT_DIR}/.terraform-plugin-cache'
+  before_script:
+    - !reference ['.aws:login:role', 'before_script']
+    - 'export SSH_HOST="${GIT_URL}"'
+    - !reference ['.ssh', 'before_script']
+    - mkdir -p "${CI_PROJECT_DIR}/.terraform-plugin-cache"
+    - terraform version
+    - terragrunt --version
+    - |
+      if [ -z "${TG_WORKING_DIR:-}" ]; then
+        echo "ERROR: TG_WORKING_DIR is not set"
+        exit 1
+      fi

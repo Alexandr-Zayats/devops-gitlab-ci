@@ -1,0 +1,183 @@
+---
+include:
+  - local: 'vars.yaml'
+  - local: 'workflow.yaml'
+  - local: 'text-style.yaml'
+  - local: 'notifications/slack.yaml'
+
+image: '${AWS_ECR_REGISTRY}/tools/base:dev-02.00.322'
+
+default:
+  tags:
+    - 'spot'
+    # - 'base'
+
+stages:
+  - '.pre'
+  - 'psalm'
+  - 'feature:env'
+  - 'test'
+  - 'test:main'
+  - 'build:compose'
+  - 'build:node'
+  - 'build'
+  - 'code:quality'
+  - 'release'
+  - 'db:setup'
+  - 'build:image'
+  - 'deploy'
+  - 'test:env'
+  - 'prod:approve'
+  - 'prod:build'
+  - 'prod:deploy'
+  - 'prod:test'
+  - 'clean'
+  - '.post'
+
+.set_TAG:
+  before_script:
+    - |
+      ENV=$(echo "$ENV" | sed 's/\//-/g')
+      [[ "$ENV" =~ ${BRANCH_TEMPLATE//\//-} ]] && ENV=$(echo "$ENV" | cut -d"-" -f2-3)
+      VERSION=$(printf "%03d" "$((CI_PIPELINE_IID - OFFSET))")
+      if [[ -n "$ENV" && "$ENV" != null ]]; then
+        TAG="${ENV}-${RELEASE}.$VERSION"
+      else
+        TAG="$VERSION"
+      fi
+    - |
+      increment_version() {
+        prefix="$1"
+        major="$2"
+        minor="$3"
+        patch="$4"
+
+        major=$((10#$major))
+        minor=$((10#$minor))
+        patch=$((10#$patch + 1))
+
+        if [ "$patch" -gt 999 ]; then
+          minor=$((minor + patch / 1000))
+          patch=$((patch % 1000))
+        fi
+
+        if [ "$minor" -gt 99 ]; then
+          major=$((major + minor / 100))
+          minor=$((minor % 100))
+        fi
+
+        printf "%s-%02d.%02d.%03d\n" "$prefix" "$major" "$minor" "$patch"
+      }
+
+    - |
+      if [[ "$TAG" =~ $TAG_TEMPLATE ]]; then
+        base="${TAG%.*}"                  # kan-1434-01.01
+        patch="${TAG##*.}"                # 1008
+        prefix_major_minor="$base"
+        major="${prefix_major_minor##*-}" # 01.01
+        major="${major%%.*}"              # 01
+        minor="${prefix_major_minor##*.}" # 01
+        prefix="${prefix_major_minor%-*}" # kan-1434
+
+        echo "prefix=$prefix major=$major minor=$minor patch=$patch"
+        TAG=$(increment_version "$prefix" "$major" "$minor" "$patch")
+        echo "TAG=$TAG"
+      else
+        echo "Bad TAG format: $TAG"
+        exit 1
+      fi
+
+    - |
+      if [[ "$EXT_TAG" != '' ]]; then
+        TAG=$EXT_TAG
+      fi
+
+.aws:login:role:
+  before_script:
+    - | 
+      echo "Get AWS credentials with role $AWS_ROLE_ARN"  # >/dev/null 2>&1 
+      creds=$(aws sts assume-role --role-arn "$AWS_ROLE_ARN" --role-session-name gitlab-flux-session)
+      export AWS_ACCESS_KEY_ID=$(echo $creds | jq -r ".Credentials.AccessKeyId")
+      export AWS_SECRET_ACCESS_KEY=$(echo $creds | jq -r ".Credentials.SecretAccessKey")
+      export AWS_SESSION_TOKEN=$(echo $creds | jq -r ".Credentials.SessionToken")
+
+.k8s:init:
+  before_script:
+    - !reference [.aws:login:role, before_script]
+    - |
+      echo "Get EKS ${EKS_CLUSTER} credentials"  # >/dev/null 2>&1
+      mkdir -p ~/.kube
+      aws eks update-kubeconfig --name ${EKS_CLUSTER} --region ${AWS_REGION} >/dev/null 2>&1
+      kubectl version
+    - !reference [.set_TAG, before_script]
+
+.git:commit:
+  after_script:
+    - |
+      pre-commit run --all-files --show-diff-on-failure || true
+      CURRENT_URL=$(git remote get-url origin)
+      NEW_URL=$(echo "$CURRENT_URL" | sed -E 's#https://([^@]+@)?gitlab.com/(.*)#git@gitserv:\2#')
+      git remote set-url origin "$NEW_URL"
+      if [ -n "$(git status --porcelain)" ]; then
+        git add .
+        git commit -m "ci: ${message}"
+        git pull --rebase origin main
+        git push origin HEAD:main
+      else
+        echo "No changes to commit"
+      fi
+
+.set_imageName:
+  before_script:
+    - !reference [.set_TAG, before_script]
+    - | 
+      echo "SET Image Name" >/dev/null 2>&1
+      function get_ecr_image {
+        local IMAGE_TAG=$( aws ecr list-images --repository-name=$1 | \
+          jq -r '.imageIds | .[] | .imageTag' | egrep "$2\." | sort -V | tail -n1)
+        [[ "$IMAGE_TAG" != "" ]] && echo "$IMAGE_TAG" || echo "latest"
+      }
+      [[ "${CONTAINER_SUB_PATH}" != "" ]] && CONTAINER_SUB_PATH="${CONTAINER_SUB_PATH}/"
+      [[ "${CONTAINER_PREFIX}" != "" ]] && CONTAINER_PREFIX="${CONTAINER_PREFIX}/"
+      IMAGE_NAME=${AWS_ECR_REGISTRY}/${CONTAINER_SUB_PATH}${CONTAINER_PREFIX}${APPLICATION}
+      if [[ "$PARENT_TAG" != "" ]]; then
+        IMAGE_NAME=${AWS_ECR_REGISTRY}/${CONTAINER_SUB_PATH}${CONTAINER_PREFIX}${APP}
+        IMAGE_VERSION=$(get_ecr_image $(echo ${IMAGE_NAME} | cut -d"/" -f2-) $(echo ${PARENT_TAG} | cut -d"-" -f2-))
+      fi
+
+.ssh:
+  before_script:
+    - |
+      eval $(ssh-agent -s)
+      if [ -f ~/.ssh/id_rsa ]; then
+        chmod 600 ~/.ssh/id_rsa
+        ssh-add ~/.ssh/id_rsa
+      elif [ -n "${SSH_PRIVATE_KEY:-}" ]; then
+        key_file="$(mktemp)"
+        if printf '%s' "$SSH_PRIVATE_KEY" | grep -q "BEGIN .*PRIVATE KEY"; then
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d "\r" > "$key_file"
+        else
+          printf '%s' "$SSH_PRIVATE_KEY" | base64 -d | tr -d "\r" > "$key_file"
+        fi
+
+        chmod 600 "$key_file"
+        ssh-add "$key_file"
+        rm -f "$key_file"
+      else
+        echo "ERROR: neither ~/.ssh/id_rsa nor SSH_PRIVATE_KEY is available"
+        exit 1
+      fi
+      mkdir -p ~/.ssh
+      chmod 700 ~/.ssh
+      ssh-keyscan "${SSH_HOST}" >> ~/.ssh/known_hosts
+      chmod 644 ~/.ssh/known_hosts
+      ssh git@${SSH_HOST}
+
+.mr_id:
+  before_script:
+    - 'apk add --update curl jq'
+    - 'echo "insecure" >> ~/.curlrc'
+    - |
+      mr_id=$(curl --header "PRIVATE-TOKEN: ${gitlab_token}" \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/merge_requests?state=opened&source_branch=${CI_COMMIT_BRANCH}" | \
+        jq '.[].iid')

@@ -1,0 +1,26 @@
+---
+.jira:release:webhook:
+  when: on_success
+  allow_failure: true
+  script:
+    - |
+      set -e
+      version_number="${CURRENT_RELEASE#release/}"
+      payload=$(jq -n \
+        --arg version "${version_number}" \
+        --arg environment "${JIRA_RELEASE_ENV}" \
+        '{data:{version:$version, env:$environment}}')
+
+      echo "Sending Jira webhook for version '${version_number}' env '${JIRA_RELEASE_ENV}'"
+      status=$(curl -sS -o /tmp/jira_webhook.out -w "%{http_code}" \
+        -H "Content-Type: application/json" \
+        -H "X-Automation-Webhook-Token: ${JIRA_WEBHOOK_TOKEN}" \
+        -X POST "${JIRA_WEBHOOK_URL}" \
+        -d "${payload}" || echo "curl_error")
+
+      if [[ "${status}" =~ ^2 ]]; then
+        echo "Webhook delivered (status ${status})"
+      else
+        echo "Webhook failed or not delivered (status ${status})"
+        cat /tmp/jira_webhook.out || true
+      fi

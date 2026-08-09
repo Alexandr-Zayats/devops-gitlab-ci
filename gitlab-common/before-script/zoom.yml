@@ -1,0 +1,14 @@
+---
+
+.before_script:zoom:
+  stage: '.post'
+  interruptible: true
+  variables:
+    AUTH_TOKEN: '${ZOOM_AUTH_TOKEN}'
+    HOOK_ID: '${ZOOM_HOOK_ID}'
+    STATUS: 'succes'
+  script:
+    - >
+      curl -X POST -H 'Authorization: ${AUTH_TOKEN}' \
+        -H 'Content-Type: application/json' https://inbots.zoom.us/incoming/hook/${HOOK_ID}?format=fields \
+        --data-urlencode "payload=${payload}"

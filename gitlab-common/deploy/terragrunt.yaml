@@ -1,0 +1,53 @@
+---
+
+.terraform:run:
+  extends: .before_script:terragrunt
+  variables:
+    TG_COMMAND: ''
+    TG_CACHE_POLICY: 'pull'
+    TG_GENERATE_DEPENDENCY_DIRS: 'true'
+  cache:
+    - key: "tg-providers-${CI_PROJECT_ID}"
+      paths:
+        - .terraform-plugin-cache/
+      policy: ${TG_CACHE_POLICY}
+    - key: "tg-modules-${CI_PROJECT_ID}-${CI_COMMIT_REF_SLUG}-${TG_WORKING_DIR}"
+      paths:
+        - ${TG_WORKING_DIR}/.terragrunt-stack/
+      policy: ${TG_CACHE_POLICY}
+  script:
+    - |
+      set -euo pipefail
+
+      TG_STACK_DIR="${CI_PROJECT_DIR}/${TG_WORKING_DIR}"
+
+      if [ "${TG_GENERATE_DEPENDENCY_DIRS}" = "true" ] && [ -n "${TERRAGRUNT_DEPENDENCY_DIRS:-}" ]; then
+        for dir in ${TERRAGRUNT_DEPENDENCY_DIRS}; do
+          dependency_stack_dir="${CI_PROJECT_DIR}/${dir}"
+          if [ ! -d "${dependency_stack_dir}" ]; then
+            echo "ERROR: TERRAGRUNT_DEPENDENCY_DIRS contains missing directory: ${dir}"
+            exit 1
+          fi
+
+          echo "Generating dependency Terragrunt stack: ${dir}"
+          terragrunt stack generate --working-dir "${dependency_stack_dir}"
+        done
+      elif [ "${TG_GENERATE_DEPENDENCY_DIRS}" != "true" ]; then
+        echo "Skipping dependency Terragrunt stack generation: TG_GENERATE_DEPENDENCY_DIRS=${TG_GENERATE_DEPENDENCY_DIRS}"
+      fi
+
+      if [ ! -d "${TG_STACK_DIR}" ]; then
+        echo "ERROR: TG_WORKING_DIR does not exist: ${TG_WORKING_DIR}"
+        exit 1
+      fi
+
+      cd "${TG_STACK_DIR}"
+      unset TG_WORKING_DIR
+
+      echo "Generating Terragrunt stack: ${TG_STACK_DIR}"
+      terragrunt stack generate
+
+      echo "Running Terragrunt command: terragrunt run --all ${TG_COMMAND}"
+      terragrunt run --all ${TG_COMMAND}
+  rules:
+    - when: never

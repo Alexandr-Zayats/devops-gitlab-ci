@@ -1,0 +1,14 @@
+---
+.gradle:build:
+  stage: 'build'
+  image: '${AWS_ECR_REGISTRY}/services/gradle:dev-02.01.297'
+  script:
+    - 'gradle buildFatJar --no-daemon -Dkotlin.compiler.execution.strategy=in-process'
+  artifacts:
+    when: 'always'
+    paths:
+      - '.gradle/**'
+      - 'build/**'
+    expire_in: '1 hour'
+  rules:
+    - if: '$BUILD_IMAGE == "true"'

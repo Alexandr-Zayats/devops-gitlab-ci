@@ -1,0 +1,9 @@
+---
+
+include:
+  - local: 'main.yml'
+  - local: 'tests/api.yml'
+
+api:
+  extends:
+    - '.tests:api'

@@ -1,0 +1,24 @@
+---
+
+.set:image:tag:
+  stage: 'build:image'
+  interruptible: true
+
+  image: 'amazon/aws-cli:2.15.26'
+  extends: ['.set_imageName']
+  variables:
+    SOURCE_TAG: 'test-latest'
+
+  script:
+    #- echo "🔐 Logging in to ECR..."
+    #- aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REPO"
+
+    - 'echo "📥 Pulling image with tag \"$SOURCE_TAG\"..."'
+    - 'docker pull "${IMAGE_NAME}:$SOURCE_TAG"'
+
+    - 'echo "🏷️ Tagging image as\"'${TAG}\"..."'
+    - 'docker tag "${IMAGE_NAME}:$SOURCE_TAG" "${IMAGE_NAME}:${TAG}"'
+
+    - 'echo "🚀 Pushing tagged image to ECR..."'
+    - 'docker push "${IMAGE_NAME}:${TAG}"'
+

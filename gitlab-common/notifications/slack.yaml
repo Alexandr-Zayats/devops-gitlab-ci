@@ -1,0 +1,421 @@
+---
+.slack:notify:
+  stage: '.post'
+  #image:
+  #  name: '${AWS_ECR_REGISTRY}/tools/base:2.0.267'
+  #  entrypoint: [""]
+
+  when: always
+  allow_failure: true
+
+  variables:
+    TOKEN: '${SLACK_TOKEN}'
+    CHANNEL: '${SLACK_CHANNEL}'
+    TITLE: 'GitLab CI'
+    MESSAGE: ''
+    COLOR: '#439FE0'
+    ENVIRONMENT: '${CI_ENVIRONMENT_NAME:-unknown}'
+    PROJECT: '${CI_PROJECT_NAME}'
+    STATUS: '0'
+    PRIORITY: 'medium'
+    APPLICATION: '${CI_PROJECT_NAME}'
+    ENV: '${CI_ENVIRONMENT_NAME:-unknown}'
+    TAG: '${CI_COMMIT_SHORT_SHA}'
+    NOTIFY_MODE: 'auto'
+    NOTIFY_STATUS: ''
+    NOTIFY_EMOJI: ''
+    NOTIFY_COLOR: ''
+    NOTIFY_LABEL: 'Deployment'
+    NOTIFY_DETAILS: ''
+
+  script:
+    - |
+      if [ -z "${TOKEN}" ]; then
+        echo "⚠ SLACK_TOKEN is not set, skipping notification"
+        exit 0
+      fi
+
+      TIMESTAMP=$(date +"%d.%m.%Y %H:%M")
+
+      is_unresolved_value() {
+        case "${1:-}" in
+          ''|'}'|'${'*|*'${'*|*'} }'*)
+            return 0
+            ;;
+          *)
+            return 1
+            ;;
+        esac
+      }
+
+      value_or_default() {
+        if is_unresolved_value "${1:-}"; then
+          printf '%s' "${2:-unknown}"
+        else
+          printf '%s' "$1"
+        fi
+      }
+
+      NOTIFY_MODE="$(value_or_default "${NOTIFY_MODE:-}" "auto")"
+
+      is_positive_number() {
+        case "${1:-}" in
+          ''|*[!0-9]*)
+            return 1
+            ;;
+          *)
+            [ "$1" -gt 0 ]
+            ;;
+        esac
+      }
+
+      normalize_status() {
+        NORMALIZED_STATUS="$(printf '%s' "${1:-UNKNOWN}" | tr '[:lower:]' '[:upper:]')"
+
+        if [ "${NORMALIZED_STATUS}" = "0" ]; then
+          NORMALIZED_STATUS="SUCCESS"
+        elif is_positive_number "${NORMALIZED_STATUS}"; then
+          NORMALIZED_STATUS="FAILED"
+        fi
+
+        case "${NORMALIZED_STATUS}" in
+          SUCCESS|OK|PASS|PASSED)
+            NORMALIZED_STATUS="SUCCESS"
+            ;;
+          FAILED|FAIL|FAILED*|ERROR*|CRITICAL*)
+            NORMALIZED_STATUS="FAILED"
+            ;;
+          BROKEN|BROKEN*)
+            NORMALIZED_STATUS="BROKEN"
+            ;;
+          WARNING*|WARN*|CAUTION*)
+            NORMALIZED_STATUS="WARNING"
+            ;;
+          CANCELED|CANCELLED)
+            NORMALIZED_STATUS="CANCELED"
+            ;;
+          SKIPPED|SKIP|SKIPPED*)
+            NORMALIZED_STATUS="SKIPPED"
+            ;;
+          RUNNING|PENDING|CREATED|PREPARING|WAITING_FOR_RESOURCE)
+            NORMALIZED_STATUS="RUNNING"
+            ;;
+          MANUAL|BLOCKED)
+            NORMALIZED_STATUS="${NORMALIZED_STATUS}"
+            ;;
+          *)
+            NORMALIZED_STATUS="UNKNOWN"
+            ;;
+        esac
+      }
+
+      set_status_visuals() {
+        normalize_status "${1:-UNKNOWN}"
+        STATUS_NAME="${NORMALIZED_STATUS}"
+        STATUS_EMOJI="ℹ️"
+        STATUS_COLOR="#439FE0"
+
+        case "${STATUS_NAME}" in
+          SUCCESS)
+            STATUS_NAME="SUCCESS"
+            STATUS_EMOJI="✅"
+            STATUS_COLOR="#36A64F"
+            ;;
+          BROKEN)
+            STATUS_NAME="BROKEN"
+            STATUS_EMOJI="💥"
+            STATUS_COLOR="#FF8C00"
+            ;;
+          WARNING)
+            STATUS_NAME="WARNING"
+            STATUS_EMOJI="⚠️"
+            STATUS_COLOR="#EAC43D"
+            ;;
+          FAILED)
+            STATUS_NAME="FAILED"
+            STATUS_EMOJI="🚨"
+            STATUS_COLOR="#E01E5A"
+            ;;
+          SKIPPED)
+            STATUS_NAME="SKIPPED"
+            STATUS_EMOJI="⏭️"
+            STATUS_COLOR="#9AA0A6"
+            ;;
+          CANCELED)
+            STATUS_NAME="CANCELED"
+            STATUS_EMOJI="🚫"
+            STATUS_COLOR="#9AA0A6"
+            ;;
+          MANUAL|BLOCKED)
+            STATUS_NAME="${STATUS_NAME}"
+            STATUS_EMOJI="⏸️"
+            STATUS_COLOR="#439FE0"
+            ;;
+          RUNNING|PENDING)
+            STATUS_NAME="${STATUS_NAME}"
+            STATUS_EMOJI="🔄"
+            STATUS_COLOR="#439FE0"
+            ;;
+        esac
+      }
+
+      if [ "${NOTIFY_MODE}" = "message" ] || [ "${NOTIFY_MODE}" = "auto" ] && [ -n "${MESSAGE}" ]; then
+        TIME=$(date +"%H:%M")
+        DATE=$(date +"%d.%m")
+        MESSAGE_STATUS="$(value_or_default "${NOTIFY_STATUS:-}" "")"
+        if [ -z "${MESSAGE_STATUS}" ]; then
+          if is_positive_number "${BROKEN:-0}"; then
+            MESSAGE_STATUS="BROKEN"
+          elif is_positive_number "${FAILED:-0}"; then
+            MESSAGE_STATUS="FAILED"
+          elif [ -n "$(value_or_default "${STATUS:-}" "")" ] && [ "$(value_or_default "${STATUS:-}" "")" != "0" ]; then
+            normalize_status "$(value_or_default "${STATUS:-}" "")"
+            MESSAGE_STATUS="${NORMALIZED_STATUS}"
+          else
+            MESSAGE_STATUS="SUCCESS"
+          fi
+        fi
+        set_status_visuals "${MESSAGE_STATUS}"
+
+        PROJECT="$(value_or_default "${PROJECT:-}" "${CI_PROJECT_NAME:-unknown}")"
+        ENVIRONMENT="$(value_or_default "${ENVIRONMENT:-}" "${CI_ENVIRONMENT_NAME:-unknown}")"
+
+        TITLE="$(value_or_default "${TITLE:-}" "GitLab CI")"
+        MESSAGE="$(value_or_default "${MESSAGE:-}" "")"
+
+        if ! is_unresolved_value "${NOTIFY_EMOJI:-}"; then
+          HEADER_EMOJI="${NOTIFY_EMOJI}"
+        else
+          HEADER_EMOJI="${STATUS_EMOJI}"
+        fi
+
+        curl -sf -X POST https://slack.com/api/chat.postMessage \
+          -H "Authorization: Bearer ${TOKEN}" \
+          -H "Content-type: application/json" \
+          --data "$(jq -n \
+            --arg ch    "${CHANNEL}" \
+            --arg em    "${HEADER_EMOJI}" \
+            --arg title "${TITLE}" \
+            --arg proj  "${PROJECT}" \
+            --arg env   "${ENVIRONMENT}" \
+            --arg date  "${DATE}" \
+            --arg time  "${TIME}" \
+            --arg msg   "${MESSAGE}" \
+            --arg pip   "${CI_PIPELINE_URL}" \
+            '{
+              channel: $ch,
+              blocks: [
+                {type:"header", text:{type:"plain_text", text:"\($em) \($title)"}},
+                {type:"divider"},
+                {
+                  type:"section",
+                  text:{type:"plain_text", text:"Project: \($proj)\nEnvironment: \($env)\n\($date) \($time)"},
+                  accessory:{
+                    type:"button",
+                    text:{type:"plain_text", text:"Open Pipeline"},
+                    url:$pip,
+                    action_id:"button_click"
+                  }
+                },
+                {type:"divider"},
+                {type:"section", text:{type:"mrkdwn", text:$msg}},
+                {type:"divider"}
+              ]
+            }')" \
+          || echo "⚠ Slack notification failed (non-critical)"
+
+      else
+
+        CLEAN_NOTIFY_STATUS="$(value_or_default "${NOTIFY_STATUS:-}" "")"
+        # Treat "unknown" as unset — it is not a real status and may come from a
+        # group/project CI variable that was never properly set.
+        case "$(printf '%s' "${CLEAN_NOTIFY_STATUS}" | tr '[:upper:]' '[:lower:]')" in
+          unknown|'') CLEAN_NOTIFY_STATUS="" ;;
+        esac
+        if [ -n "${CLEAN_NOTIFY_STATUS}" ]; then
+          RAW_NOTIFY_STATUS="${CLEAN_NOTIFY_STATUS}"
+        else
+          if [ -n "${GITLAB_TOKEN:-}" ]; then
+            GITLAB_AUTH_HEADER="PRIVATE-TOKEN: ${GITLAB_TOKEN}"
+            echo "ℹ Using GITLAB_TOKEN for API auth"
+          elif [ -n "${CI_JOB_TOKEN:-}" ]; then
+            GITLAB_AUTH_HEADER="JOB-TOKEN: ${CI_JOB_TOKEN}"
+            echo "ℹ Using CI_JOB_TOKEN for API auth"
+          else
+            GITLAB_AUTH_HEADER=""
+            echo "⚠ No GitLab auth token available (GITLAB_TOKEN and CI_JOB_TOKEN are both unset)"
+          fi
+
+          if [ -n "${GITLAB_AUTH_HEADER}" ] && [ -n "${CI_API_V4_URL}" ] && [ -n "${CI_PROJECT_ID}" ] && [ -n "${CI_PIPELINE_ID}" ]; then
+            JOBS=$(curl -sf \
+              --header "${GITLAB_AUTH_HEADER}" \
+              "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/pipelines/${CI_PIPELINE_ID}/jobs?per_page=100" \
+              || echo "[]")
+            JOBS_COUNT=$(printf '%s' "${JOBS}" | jq 'length')
+            REQUIRED_JOBS=$(printf '%s' "${JOBS}" | jq --arg current_job_id "${CI_JOB_ID:-}" '
+              [
+                .[]
+                | select((.id | tostring) != $current_job_id)
+                | select(.allow_failure != true)
+                | select(.retried != true)
+                | select(.status != "skipped")
+                | select(.status != "manual")
+              ]
+            ')
+            FAILED=$(printf '%s' "${REQUIRED_JOBS}" | jq '[.[] | select(.status == "failed")] | length')
+            CANCELED=$(printf '%s' "${REQUIRED_JOBS}" | jq '[.[] | select(.status == "canceled")] | length')
+            RUNNING=$(printf '%s' "${REQUIRED_JOBS}" | jq '[.[] | select(.status == "running" or .status == "pending" or .status == "created" or .status == "preparing" or .status == "waiting_for_resource")] | length')
+            TOTAL=$(printf '%s' "${REQUIRED_JOBS}" | jq 'length')
+            echo "ℹ Jobs API: total_jobs=${JOBS_COUNT} required=${TOTAL} failed=${FAILED} canceled=${CANCELED} running=${RUNNING}"
+            if [ "${FAILED:-0}" -gt 0 ]; then
+              RAW_NOTIFY_STATUS="FAILED"
+            elif [ "${CANCELED:-0}" -gt 0 ]; then
+              RAW_NOTIFY_STATUS="CANCELED"
+            elif [ "${RUNNING:-0}" -gt 0 ]; then
+              RAW_NOTIFY_STATUS="RUNNING"
+            elif [ "${TOTAL:-0}" -gt 0 ]; then
+              RAW_NOTIFY_STATUS="SUCCESS"
+            elif [ "${JOBS_COUNT:-0}" -gt 0 ]; then
+              # Jobs were returned but ALL were filtered out (skipped/manual/allow_failure/retried).
+              # The pipeline completed without meaningful failures — treat as SUCCESS.
+              RAW_NOTIFY_STATUS="SUCCESS"
+              echo "ℹ All jobs filtered (skipped/manual/allow_failure), treating as SUCCESS"
+            else
+              # Jobs API returned empty [] — likely an auth/network error.
+              # Fall back to the pipeline status endpoint.
+              echo "ℹ Jobs API returned empty, querying pipeline status via API..."
+              PIPELINE_INFO=$(curl -sf \
+                --header "${GITLAB_AUTH_HEADER}" \
+                "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/pipelines/${CI_PIPELINE_ID}" \
+                || echo "{}")
+              API_PIPELINE_STATUS=$(printf '%s' "${PIPELINE_INFO}" | jq -r '.status // empty')
+              if [ -n "${API_PIPELINE_STATUS}" ] && [ "${API_PIPELINE_STATUS}" != "running" ]; then
+                RAW_NOTIFY_STATUS="${API_PIPELINE_STATUS}"
+                echo "ℹ Pipeline API returned status: ${API_PIPELINE_STATUS}"
+              else
+                RAW_NOTIFY_STATUS="UNKNOWN"
+                echo "⚠ Could not determine pipeline status (jobs API empty, pipeline status=${API_PIPELINE_STATUS:-none})"
+              fi
+            fi
+          else
+            echo "⚠ Missing auth or API vars (GITLAB_AUTH_HEADER=${GITLAB_AUTH_HEADER:+set}, CI_API_V4_URL=${CI_API_V4_URL:-unset}, CI_PROJECT_ID=${CI_PROJECT_ID:-unset}, CI_PIPELINE_ID=${CI_PIPELINE_ID:-unset})"
+            RAW_NOTIFY_STATUS="UNKNOWN"
+          fi
+        fi
+
+        NOTIFY_LABEL="$(value_or_default "${NOTIFY_LABEL:-}" "Deployment")"
+        NOTIFY_DETAILS="$(value_or_default "${NOTIFY_DETAILS:-}" "pipeline=${CI_PIPELINE_ID:-unknown}")"
+        APPLICATION="$(value_or_default "${APPLICATION:-}" "${CI_PROJECT_NAME:-unknown}")"
+        ENV="$(value_or_default "${ENV:-}" "${CI_ENVIRONMENT_NAME:-unknown}")"
+        TAG="$(value_or_default "${TAG:-}" "${CI_COMMIT_SHORT_SHA:-unknown}")"
+        if [ "${TAG}" = "unknown" ]; then
+          TAG="${CI_COMMIT_SHORT_SHA:-unknown}"
+        fi
+
+        DEPLOY_STATUS="$(printf '%s' "${RAW_NOTIFY_STATUS}" | tr '[:lower:]' '[:upper:]')"
+        set_status_visuals "${DEPLOY_STATUS}"
+        DEPLOY_STATUS="${STATUS_NAME}"
+        DEPLOY_EMOJI="${STATUS_EMOJI}"
+        DEPLOY_COLOR="${STATUS_COLOR}"
+        echo "Slack notification status resolved to ${DEPLOY_STATUS} from ${RAW_NOTIFY_STATUS}"
+
+        if ! is_unresolved_value "${NOTIFY_EMOJI:-}"; then
+          DEPLOY_EMOJI="${NOTIFY_EMOJI}"
+        fi
+        if ! is_unresolved_value "${NOTIFY_COLOR:-}"; then
+          DEPLOY_COLOR="${NOTIFY_COLOR}"
+        fi
+
+        DETECTED_ENV=""
+        if [ "${CI_PROJECT_NAME:-}" != "features" ] && [ "${CI_PROJECT_PATH##*/}" != "features" ]; then
+          if [ -n "${CI_COMMIT_TAG:-}" ]; then
+            DETECTED_ENV="stg"
+          elif [ "${CI_COMMIT_REF_NAME:-}" = "${CI_DEFAULT_BRANCH:-}" ]; then
+            DETECTED_ENV="dev"
+          elif printf '%s' "${CI_COMMIT_TITLE:-}" | grep -Eq '^Deploy TEST'; then
+            DETECTED_ENV="test"
+          fi
+        fi
+
+        IS_RELEASE_ENV="false"
+        case "${ENV:-}" in
+          dev|test|stg|prod|service)
+            IS_RELEASE_ENV="true"
+            ;;
+          *)
+            if [ -n "${DETECTED_ENV}" ]; then
+              ENV="${DETECTED_ENV}"
+              IS_RELEASE_ENV="true"
+            fi
+            ;;
+        esac
+
+        if [ "${IS_RELEASE_ENV}" = "true" ]; then
+          case "${NOTIFY_LABEL:-}" in
+            ""|*"Feature environment"*|*"Feature environments"*)
+              NOTIFY_LABEL="${CI_PROJECT_NAME:-Deployment} ${ENV} deployment"
+              ;;
+          esac
+
+          case "${APPLICATION:-}" in
+            ""|*"features"*|*"Features"*)
+              APPLICATION="${CI_PROJECT_NAME:-unknown}"
+              ;;
+          esac
+
+          if [ -z "${NOTIFY_DETAILS:-}" ] || printf '%s' "${NOTIFY_DETAILS}" | grep -Eq '(^| )create=|(^| )restart='; then
+            NOTIFY_DETAILS="cluster=${EKS_CLUSTER:-unknown}"
+          fi
+        fi
+
+        curl -sf -X POST https://slack.com/api/chat.postMessage \
+          -H "Authorization: Bearer ${TOKEN}" \
+          -H "Content-type: application/json" \
+          --data "$(jq -n \
+            --arg ch    "${CHANNEL}" \
+            --arg em    "${DEPLOY_EMOJI}" \
+            --arg st    "${DEPLOY_STATUS}" \
+            --arg color "${DEPLOY_COLOR}" \
+            --arg label "${NOTIFY_LABEL}" \
+            --arg details "${NOTIFY_DETAILS}" \
+            --arg env   "${ENV:-unknown}" \
+            --arg app   "${APPLICATION:-unknown}" \
+            --arg tag   "${TAG:-unknown}" \
+            --arg br    "${CI_COMMIT_REF_NAME}" \
+            --arg sha   "${CI_COMMIT_SHORT_SHA}" \
+            --arg usr   "${GITLAB_USER_LOGIN}" \
+            --arg pip   "${CI_PIPELINE_URL}" \
+            --arg job   "${CI_JOB_URL}" \
+            --arg ts    "${TIMESTAMP}" \
+            '{
+              channel: $ch,
+              attachments: [
+                {
+                  color: $color,
+                  blocks: [
+                    {type: "header", text: {type:"plain_text", text:"\($em) \($label) \($st) · \($ts)"}},
+                    {type: "section", fields: [
+                      {type: "mrkdwn", text:"*Service:*\n\($app)"},
+                      {type: "mrkdwn", text:"*Environment:*\n\($env)"},
+                      {type: "mrkdwn", text:"*Version:*\n\($tag)"},
+                      {type: "mrkdwn", text:"*Branch:*\n\($br)"},
+                      {type: "mrkdwn", text:"*Commit:*\n\($sha)"},
+                      {type: "mrkdwn", text:"*Details:*\n\($details)"},
+                      {type: "mrkdwn", text:"*Triggered by:*\n\($usr)"}
+                    ]},
+                    {type: "actions", elements: [
+                      {type:"button", text:{type:"plain_text", text:"Open Pipeline"}, url:$pip},
+                      {type:"button", text:{type:"plain_text", text:"Open Job"},      url:$job}
+                    ]}
+                  ]
+                }
+              ]
+            }')" \
+          || echo "⚠ Slack notification failed (non-critical)"
+      fi
+
+.slack:notify:deploy:
+  extends: ['.slack:notify']
+  variables:
+    TITLE: 'Deployment'
+    NOTIFY_MODE: 'status'

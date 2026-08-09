@@ -1,0 +1,141 @@
+---
+
+.wait_for_flux:
+  stage: 'deploy'
+  interruptible: true
+  variables:
+    APPLICATION: ''
+    APP_NAMESPACE: 'cms'
+    IMAGE_AUTOMATION: 'apps'
+    DEPLOY_VIA: 'helmrelease'
+    RELOAD_ONLY: false
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+  before_script:
+    - !reference [.k8s:init, before_script]
+  script:
+    - |
+      set -euo pipefail
+      # -------------------------------
+      # Configurtion
+      # -------------------------------
+      [[ "${ENV}" =~ ${BRANCH_TEMPLATE//\//-} ]] && ENV=$("${ENV}" | cut -d"-" -f2-)
+      [[ "$ENV" != '' ]] && APP_NAMESPACE="${ENV}-${APP_NAMESPACE}"
+      TIMEOUT="${5:-700}"
+
+      # -------------------------------
+      # Init variables
+      # -------------------------------
+      match_found=false
+      new_commit=false
+      start_time=$(date +%s)
+      end_time=$((start_time + TIMEOUT))
+      # initial_commit=$(kubectl -n flux-system get imageupdateautomation "$IMAGE_AUTOMATION" -o jsonpath='{.status.lastPushCommit}' || echo "")
+      # echo "🔍 Current configuration version: $initial_commit"
+
+      # -------------------------------
+      # Functions
+      # -------------------------------
+      check_for_tag() {
+        local images img_clean
+        if [[ "$DEPLOY_VIA" == "helmrelease" ]]; then
+          images=$(kubectl get "$DEPLOY_VIA" "$APPLICATION" -n "$APP_NAMESPACE" -o json | jq -r '.. | .tag? // empty')
+        else
+          images=$(kubectl get "$DEPLOY_VIA" "$APPLICATION" -n "$APP_NAMESPACE" -o json | jq -r '.. | .image? // empty' | awk -F":" '{print $2}')
+        fi
+        
+        for img in $images; do
+          img_clean=$(echo "$img" | tr -d '[:space:]')
+          echo "🧪 Existing tag: '$img_clean'"
+          if [[ "$img_clean" == *"$TAG" ]]; then
+            echo "✅ Found image with expected tag: $img_clean"
+            return 0
+          fi
+        done
+        return 1
+      }
+
+      wait_for_new_commit() {
+        local commit
+        while ! $new_commit; do
+          if (( $(date +%s) > end_time )); then
+            echo "⏱Timeout reached"
+            break
+          fi
+          commit=$(kubectl -n flux-system get imageupdateautomation "$IMAGE_AUTOMATION" -o jsonpath='{.status.lastPushCommit}' || echo "")
+          if [[ -n "$commit" && "$commit" != "$initial_commit" ]]; then
+            echo "✅ New configuration found. ID: $commit"
+            new_commit=true
+          fi
+          if check_for_tag; then
+            match_found=true
+            new_commit=true
+          fi
+          sleep 5
+        done
+      }
+
+      # -------------------------------
+      # Main
+      # -------------------------------
+      if ! $RELOAD_ONLY; then
+        echo "🔍 Checking for new '$APPLICATION' version '$TAG'..."
+        
+        # 1️⃣  check tag
+        if check_for_tag; then
+          match_found=true
+        fi
+
+        # 2️⃣  check commit if new tag absent 
+        if [[ "$new_commit" == false && "$match_found" == false ]]; then
+          initial_commit=$(kubectl -n flux-system get imageupdateautomation "$IMAGE_AUTOMATION" -o jsonpath='{.status.lastPushCommit}' || echo "")
+          echo "🔍 Current configuration version: $initial_commit"
+          # echo "📦 Current configuration has previus application version."
+          echo "📦 Waiting for new configuration with version '$TAG' ..."
+          wait_for_new_commit
+        fi 
+        if [[ "$match_found" == false ]]; then 
+          echo "⏳ Waiting for new version '$TAG' to be deployed..."
+          while true; do
+            if (( $(date +%s) > end_time )); then
+              echo "⏱Timeout reached"
+              break
+            fi
+            # 1️⃣  check tag
+            if check_for_tag; then
+              match_found=true
+              break
+            fi
+            sleep 5
+          done
+        fi
+      else
+        match_found=true
+        # flux reconcile kustomization ${ENV}.deploy.demo-platform.apps --with-source --timeout="${TIMEOUT}s"
+      fi
+
+      if [[ "$match_found" == true ]]; then
+        # -------------------------------
+        # Waiting for  Ready
+        # -------------------------------
+        echo "⏳ Waiting for status 'Ready'..."
+        if [[ "$DEPLOY_VIA" == "helmrelease" ]]; then
+          kubectl wait --for=condition=ready "$DEPLOY_VIA/$APPLICATION" -n "$APP_NAMESPACE" --timeout="${TIMEOUT}s"
+        else
+          kubectl wait --for=condition=available "$DEPLOY_VIA/$APPLICATION" -n "$APP_NAMESPACE" --timeout="${TIMEOUT}s"
+        fi
+
+        # -------------------------------
+        # Outputs
+        # -------------------------------
+        echo "✅ Successful: Service '$APPLICATION' updated with new version '$TAG'"
+        exit 0
+      else
+        echo "❌ Error: new version '$TAG' does not applied"
+        kubectl describe "$DEPLOY_VIA" "$APPLICATION" -n "$APP_NAMESPACE"
+        flux -n flux-system get kustomizations "${ENV}.demo-platform.apps"
+        flux -n flux-system logs --kind=kustomization --name="${ENV}.demo-platform.apps" --since=10m
+        exit 1
+      fi

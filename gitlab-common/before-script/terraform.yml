@@ -1,0 +1,32 @@
+---
+
+.before_script:terraform:
+  interruptible: true
+  variables:
+    KUBE_CONFIG: '${KUBE_CONFIG}'
+    WORKSPACE: 'dev'
+    TF_VARS: 'terraform.tfvars.json.tpl'
+    IMAGE_VERSION: ''
+    IMAGE_NAME: '${AWS_ECR_REGISTRY}/${CONTAINER_SUB_PATH}${CONTAINER_PREFIX}${APP}'
+  # only:
+  #  changes:
+  #    - '**/*.tf'
+  before_script:
+    - !reference [.set_TAG, script]
+    - 'IMAGE_VERSION="${TAG}"'
+    - !reference [.set_imageName, script]
+    - !reference [.kube_config, script]
+    - 'SSH_HOST=${GIT_URL}'
+    - !reference [.ssh, script]
+    - 'ssh git@${GIT_URL}'
+    - 'tfswitch ${TERRAFORM_VERSION} || true'
+    - 'export PATH=$PATH:/usr/local/bin'
+    - 'terraform --version'
+    - |
+      tfFolder=$(find ./ -type f -name "*.tf" | awk -F'/' 'sub(FS $NF,x)' | sort -u)
+    - 'currentFolder=$(pwd)'
+    - 'echo ${WORKSPACE}'
+    - 'echo ${PARENT_TAG}'
+    - 'echo ${IMAGE_NAME}'
+    - 'echo ${IMAGE_VERSION}'
+    # - 'terraform init $([ -f backend.tfvars ] && echo -backend-config=backend.tfvars || echo "")'

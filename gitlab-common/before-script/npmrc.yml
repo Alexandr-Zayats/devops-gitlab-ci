@@ -1,0 +1,17 @@
+---
+
+.before_script:npmrc:
+  variables:
+    BUILD_PATH: '.'
+  interruptible: true
+  before_script:
+    - 'cd "${BUILD_PATH:-.}"'
+    - |
+      : "${NEXUS_REGISTRY_HOST:?Missing NEXUS_REGISTRY_HOST}"
+      printf "%s\n" \
+        "@example-org:registry=https://${NEXUS_REGISTRY_HOST}/repository/npm-release/" \
+        "registry=https://${NEXUS_REGISTRY_HOST}/repository/npm-latest/" \
+        "" \
+        "//${NEXUS_REGISTRY_HOST}/:username=npm-publisher" \
+        "//${NEXUS_REGISTRY_HOST}/:_password=${NPM_USER_PASSWORD}" \
+        > .npmrc

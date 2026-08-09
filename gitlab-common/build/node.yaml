@@ -1,0 +1,24 @@
+---
+.node:build:
+  stage: 'build'
+  interruptible: true
+  image: '${AWS_ECR_REGISTRY}/tools/node:22.2.188'
+  # tags: 
+  #   - 'node'
+  variables:
+    NODE_OPTIONS: '--max-old-space-size=6144'
+    JAVA_TOOL_OPTIONS: '-Xmx5120m -Xms5120m -XX:+UseG1GC -XX:+UseStringDeduplication -XX:MinHeapFreeRatio=5 -XX:MaxHeapFreeRatio=10'
+    BUILD_PATH: ''
+  before_script:
+    # - !reference [.set_TAG, before_script]
+    - 'if [ "${BUILD_PATH}" != "" ]; then cd ${BUILD_PATH}; fi'
+  script:
+    #- 'echo "API_URL=https://rest-test.example-org.ca/api/v1" >.env'
+    #- 'echo "GOOGLE_API_KEY=${GOOGLE_API_KEY}" >>.env'
+    - 'npm install'
+    - 'npm run build'
+  artifacts:
+    paths:
+      - '.output'
+      - 'dist'
+    expire_in: '5 minutes'

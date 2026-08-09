@@ -1,0 +1,52 @@
+---
+
+.build:image:kanico:
+  stage: 'build:image'
+  interruptible: true
+
+  image: 'gcr.io/kaniko-project/executor:v1.23.2-debug'
+  variables:
+    #http_proxy: ''
+    #https_proxy: ''
+    #no_proxy: ''
+    PROJECT_DIR: '${CI_PROJECT_DIR}'
+    DOCKER_FILE: '.deploy/Dockerfile'
+    APP: '${APPLICATION}'
+    DESTINATION: '${IMAGE_NAME}:0.0.1'
+    BUILD_ARGS: ''
+    EXT_TAG: ''
+    #--build-arg=http_proxy=$http_proxy
+    #--build-arg=https_proxy=$https_proxy
+    #--build-arg=no_proxy=$no_proxy
+
+  retry:
+    max: 2
+    when:
+      - runner_system_failure   
+  before_script:
+    - 'export APPLICATION=${APP}'
+    - !reference [.set_imageName, before_script]
+    # - 'echo "{\"credsStore\":\"ecr-login\"}" > /kaniko/.docker/config.json'
+    # - 'echo "{\"credHelpers\": {\"000000000000.dkr.ecr.us-east-1.amazonaws.com\": \"ecr-login\"}}" > /kaniko/.docker/config.json'
+  script:
+    - |
+      case "$ENV" in
+        dev) suffix="latest" ;;
+        test) suffix="test-latest" ;;
+        stg) suffix="stg-latest" ;;
+        service) suffix="service-latest" ;;
+        *) suffix="" ;;
+      esac
+      DESTINATION="${IMAGE_NAME}:${TAG}"
+      [[ -n "$suffix" ]] && DESTINATION="$DESTINATION --destination=${IMAGE_NAME}:${suffix}"
+      /kaniko/executor ${BUILD_ARGS} \
+        --destination=${DESTINATION} \
+        --context="${PROJECT_DIR}" \
+        --dockerfile="${PROJECT_DIR}/${DOCKER_FILE}" \
+        --cache=true \
+        --cache-dir=/cache \
+        --cache-repo=${AWS_ECR_REGISTRY}/kaniko-cache \
+        --cache-copy-layers=false \
+        --snapshotMode=redo \
+        --use-new-run
+

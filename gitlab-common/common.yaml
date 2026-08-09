@@ -1,0 +1,117 @@
+---
+include:
+  - local: 'tests/branchStatus.yaml'
+  - local: 'deploy/addEnv.yaml'
+  - local: 'deploy/rmEnv.yaml'
+  - local: 'deploy/checkEnv.yaml'
+  - local: 'notifications/jira.yaml'
+  - local: 'notifications/slack.yaml'
+  - local: 'tests/sonar.yaml'
+
+tests:branch:status:
+  extends: ['.branch:status']
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_NAME != $CURRENT_RELEASE && $CI_COMMIT_REF_NAME != $HOTFIX_REF'
+
+#tests:sonar:
+#  extends: ['.tests:sonar']
+#  variables:
+#    LANGS: 'php,js,ts'
+#  rules:
+#    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+feature-env:create:
+  extends: ['.create:env']
+  rules: [if: '$CREATE_ENV == "true"']
+
+feature-env:destroy:
+  extends: ['.destroy:env']
+  rules: [if: '$ENV == "dev"']
+
+feature-env:destroy:check:
+  extends: ['.check:destroy:env']
+  needs:
+    - job: 'feature-env:destroy'
+      optional: true
+  rules: [if: '$ENV == "dev"']
+
+feature-env:destroy:check:notify:
+  extends: ['.slack:notify']
+  needs:
+    - job: 'feature-env:destroy:check'
+      optional: true
+      artifacts: true
+  before_script:
+    - |
+      if [[ "${CHECK_STATUS}" != "1" ]]; then
+        echo "Cleanup check passed, no Slack error notification needed"
+        exit 0
+      fi
+      export TITLE="Feature env cleanup check failed"
+      export PROJECT="${CI_PROJECT_PATH}"
+      export ENVIRONMENT="${CHECK_ENV:-${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME:-${ENV}}}"
+      export MESSAGE="${CHECK_MESSAGE:-Feature env cleanup check failed}"
+      export NOTIFY_MODE="message"
+      export STATUS="1"
+      export NOTIFY_STATUS="FAILED"
+      export NOTIFY_EMOJI="🚨"
+      export APPLICATION="${CI_PROJECT_PATH}"
+      export ENV="${CHECK_ENV:-${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME:-${ENV}}}"
+  variables:
+    CHANNEL: '${SLACK_CHANNEL}'
+  rules: [if: '$ENV == "dev"']
+
+tests:api:
+  rules: [if: '$RUN_TESTS == "true"']
+  stage: 'test:env'
+  allow_failure: true
+  trigger:
+    project: 'example-org/cms-team/tests/api-tests'
+    branch: 'main'
+    inputs:
+      environment: '${ENV}'
+      CALLER_PROJECT: '${CI_PROJECT_NAME}'
+
+jira:release:webhook:test:
+  extends: ['.jira:release:webhook']
+  stage: '.post'
+  variables:
+    JIRA_RELEASE_ENV: 'test'
+  rules:
+    - if: '$ENV == "test" && $HOTFIX_REF == ""'
+    - when: never
+
+jira:release:webhook:stg:
+  extends: ['.jira:release:webhook']
+  stage: 'prod:approve'
+  variables:
+    JIRA_RELEASE_ENV: 'stg'
+  rules:
+    - if: '$ENV == "stg" && $HOTFIX_REF == ""'
+    - when: never
+
+jira:release:webhook:prod:
+  extends: ['.jira:release:webhook']
+  stage: '.post'
+  variables:
+    JIRA_RELEASE_ENV: 'prod'
+  rules:
+    - if: '$ENV == "stg" && $HOTFIX_REF == ""'
+    - when: never
+
+notify:
+  extends: ['.slack:notify:deploy']
+  allow_failure: true
+  variables:
+    NOTIFY_MODE: '${DEPLOY_NOTIFY_MODE}'
+    NOTIFY_STATUS: '${DEPLOY_NOTIFY_STATUS}'
+    NOTIFY_LABEL: '${DEPLOY_NOTIFY_LABEL}'
+    NOTIFY_EMOJI: '${DEPLOY_NOTIFY_EMOJI}'
+    NOTIFY_COLOR: '${DEPLOY_NOTIFY_COLOR}'
+    NOTIFY_DETAILS: '${DEPLOY_NOTIFY_DETAILS}'
+    APPLICATION: '${APPLICATION}'
+    ENV: '${ENV}'
+    TAG: '${APP_TAG}'
+  rules:
+    - if: '$DEPLOY == "true"'
+      when: always

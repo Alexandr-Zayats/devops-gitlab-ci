@@ -1,0 +1,46 @@
+---
+.tests:sonar:
+  image: '000000000000.dkr.ecr.us-east-1.amazonaws.com/services/sonar:latest'
+  stage: '.pre'
+  variables:
+    SONAR_USER_HOME: '${CI_PROJECT_DIR}/.sonar'
+    GIT_DEPTH: '0'
+    projectKey: '${SONAR_PROJECT_KEY}'
+    SONAR_HOST_URL: 'https://sonar.tools.int'
+    SONAR_TOKEN: '${SONAR_TOKEN}'
+    LANGS: 'php,js'
+    SONAR_SCANNER_OPTS: >
+      -Djavax.net.ssl.trustStore=/usr/lib/jvm/java-17-openjdk/lib/security/cacerts
+      -Djavax.net.ssl.trustStorePassword=changeit
+      -Djavax.net.ssl.trustStoreType=JKS
+      -Dsonar.verbose=true
+    #-Dsonar.qualitygate.wait=true \
+    #-Dsonar.exclusions=**/tests/**,**/node_modules/**,**/vendor/** \
+    #-Dsonar.language=php,js
+  before_script:
+    - 'java -version'
+    - 'sonar-scanner -v'
+  script:
+    - |
+      sonar-scanner \
+        -Dsonar.sources=. \
+        -Dsonar.host.url="${SONAR_HOST_URL}" \
+        -Dsonar.projectKey=${projectKey} \
+        -Dsonar.exclusions=**/tests/**,**/.deploy/** \
+        -Dsonar.language=${LANGS}
+# Only Ultimate edition
+#    - |
+#      curl -k -u "${SONAR_TOKEN}:" \
+#        "${SONAR_HOST_URL}/api/issues/gitlab_sast_export?projectKey=${projectKey}&branch=${CI_COMMIT_BRANCH}&pullRequest=${CI_MERGE_REQUEST_IID}" -o gl-sast-sonar-report.json
+#  artifacts:
+#    expire_in: 1 day
+#    reports:
+#      sast: gl-sast-sonar-report.json
+
+  allow_failure: true
+  cache:
+    policy: 'pull-push'
+    key: 'sonar-cache-$CI_COMMIT_REF_SLUG'
+    paths:
+      - '${SONAR_USER_HOME}/cache'
+      - 'sonar-scanner/'

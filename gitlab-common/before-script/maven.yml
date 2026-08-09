@@ -1,0 +1,88 @@
+---
+
+.before_script:maven:
+  interruptible: true
+  variables:
+    JAVA_POST_PROCESS_FILE: '/usr/local/bin/clang-format -i'
+    # JAVA_TOOL_OPTIONS: '-XX:+UnlockExperimentalVMOptions -XX:+UseCGroupMemoryLimitForHeap -Dsun.zip.disableMemoryMapping=true -XX:+UseParallelGC -XX:MinHeapFreeRatio=5 -XX:MaxHeapFreeRatio=10 -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90 -Xms512m -Xmx8192m'
+    JAVA_TOOL_OPTIONS: '-Xmx12288m -Xms512m -XX:+UseG1GC -XX:+UseStringDeduplication -XX:MinHeapFreeRatio=5 -XX:MaxHeapFreeRatio=10'
+    # MAVEN_OPTS: '-Xmx12288m -Xms512m' #  -XX:+CMSClassUnloadingEnabled -XX:+UseConcMarkSweepGC -XX:+UseGCOverheadLimit'
+    CONF_PATH: ''
+    DEFAULT_CONF_PATH: '/root/.m2'
+    POM_FILE: 'pom.xml'
+    PARAMS: '-q -f ${POM_FILE}'
+    BUILD_PATH: './'
+
+    RDS_ENDPOINT: '127.0.0.1'
+    RDS_DB_NAME: 'inventory'
+    RDS_USER_NAME: 'postgres'
+    RDS_USER_PASSWORD: 'postgres'
+    KAFKA_URL: 'http://127.0.0.1:9092'
+    KAFKA_PORT: '9092'
+    ALLOW_PLAINTEXT_LISTENER: 'yes'
+    KAFKA_ZOOKEEPER_PROTOCOL: 'PLAINTEXT'
+    KAFKA_CFG_ZOOKEEPER_CONNECT: '127.0.0.1:2181'
+    KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    KAFKA_BROKER_ID: '1'
+    KAFKA_LISTENERS: 'PLAINTEXT://:9092'
+    KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://127.0.0.1:9092'
+    ALLOW_ANONYMOUS_LOGIN: 'yes'
+    SQS_NOTIFICATIONS_QUEUE: 'TODO'
+    SQS_VENUE_BOOKING_SEARCH_QUEUE: 'TODO'
+    ELASTIC_SEARCH_URL: 'http://127.0.0.1:9200'
+
+  before_script:
+    - |
+      if [[ "${CONF_PATH}" != "" ]]; then
+        # mkdir -pv ${DEFAULT_CONF_PATH}
+        # cp ${CONF_PATH} ${DEFAULT_CONF_PATH}/settings.xml
+        PARAMS="${PARAMS} -s ${CONF_PATH}"
+      fi
+    - |
+      if test -f "${DEFAULT_CONF_PATH}/settings.xml"; then
+        PARAMS="${PARAMS} -s ${DEFAULT_CONF_PATH}/settings.xml"
+      fi
+      if test -f "${DEFAULT_CONF_PATH}/settings-gs.xml"; then
+        PARAMS="${PARAMS} -gs ${DEFAULT_CONF_PATH}/settings-gs.xml"
+      fi
+    - 'if ! $maven_test; then PARAMS="${PARAMS} -DskipTests"; fi'
+    - !reference [.set_TAG, script]
+    - 'echo ${JAVA_VERSION}'
+    - 'swith_java ${JAVA_VERSION} || true'
+    - '/usr/lib/jvm/default-jvm/bin/java -XX:+PrintFlagsFinal -version | grep HeapSize'
+    - 'mvn -v || true'
+    - 'gitlab-runner --version'
+    - |
+      if test -f "${CI_PROJECT_DIR}/mvnw"; then
+        maven="${CI_PROJECT_DIR}/mvnw ${PARAMS}"
+      else
+        maven="mvn ${PARAMS}"
+      fi
+    - 'cd ${BUILD_PATH}'
+    - |
+      if [[ "$maven_set_version" == "true" ]]; then
+        ${maven} versions:set -DnewVersion=${TAG}
+        ${maven} versions:lock-snapshots
+      fi
+#  cache:
+#    untracked: true
+#    paths:
+#      - '**/target/'
+
+  artifacts:
+    paths:
+      - '**/package.json'
+      - '**/*-contract/'
+      - '**/target/site/jacoco'
+      - '**/tagret/generated-sources/'
+      - '**/target/classes/'
+      - '**/target/allure-results/'
+      - '**/target/site/allure-maven-plugin/'
+      - '**/target/*.jar'
+      - '**/target/*.tar.gz'
+      - '**/target/*.war'
+      - '**/version.txt'
+      - 'version.properties'
+      - '**/pom.xml'
+      - '**/target/dependency/*'
+    expire_in: '1 hour'

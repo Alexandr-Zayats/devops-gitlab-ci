@@ -1,0 +1,41 @@
+---
+
+.approval:
+  stage: 'check'
+  interruptible: true
+  rules:
+    # - if: '$CI_OPEN_MERGE_REQUESTS != null'
+    - if: '$CI_MERGE_REQUEST_IID'
+  script:
+    - 'echo MR ID: ${CI_MERGE_REQUEST_IID}'
+    - |
+      asc=$(curl --header "PRIVATE-TOKEN: ${gitlab_token}" \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/merge_requests/${CI_MERGE_REQUEST_IID}/notes?sort=asc" | \
+        jq -r '.[] | select(.body | contains("this merge request")) | "\(.body) \(.author.id)"')
+    - |
+      desc=$(curl --header "PRIVATE-TOKEN: ${gitlab_token}" \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/merge_requests/${CI_MERGE_REQUEST_IID}/notes?sort=desc" | \
+        jq -r '.[] | select(.body | contains("this merge request")) | "\(.body) \(.author.id)"')
+
+    - |
+      approval=$(echo "$asc
+        $desc" | \
+        awk '
+          BEGIN {app=0; split("",m)}
+          {
+            if($1=="approved") m[$5]=m[$5]+1;
+            if($1=="unapproved") m[$5]=m[$5]-1
+          }
+          END {for (key in m) {if(m[key]>0) app=app+1} print app}
+        '
+      )
+    - |
+      if [ "$approval" -ge "$approval_required" ]; then
+        echo "The are $approval approval.";
+        echo "MR ALLOWED";
+        exit 0
+      else
+        printf "${RED}ERROR: ${Blue}MR BLOCKED.
+        The are only $approval approval but $approval_required required.${NC}\n";
+        exit 1
+      fi

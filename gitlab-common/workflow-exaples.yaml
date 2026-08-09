@@ -1,0 +1,73 @@
+---
+workflow:
+  rules:
+    # - if: $CI_PIPELINE_SOURCE == "push"
+    # - if: $CI_COMMIT_BRANCH
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      variables:
+        !reference ['.vars:dev', 'variables']
+    # - if: '$CI_MERGE_REQUEST_TITLE =~ /^Revert/ && $CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_TAG =~ /^[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,4}\.[0-9]{10,16}-(RELEASE|HOTFIX)(-[A-Z0-9]+)*$/' #/^release\//'
+      variables:
+        !reference ['.vars:stg', 'variables']
+    #- if: '$CI_COMMIT_TITLE =~ /^Deploy DEV/'
+    #  variables:
+    #    !reference ['.vars:dev', 'variables']
+    # - if: '$CI_COMMIT_REF_SLUG =~ /(feature|bugfix)/ && $CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_REF_SLUG =~ /(feature|bugfix)/ && $CI_MERGE_REQUEST_ID'
+      variables:
+        !reference ['.vars:feature', 'variables']
+    #- if: '$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /(feature|bugfix)/'
+    #  variables:
+    #    !reference ['.vars:feature', 'variables']
+    - if: '$CI_COMMIT_REF_NAME == $CURRENT_RELEASE && $HOTFIX_REF == ""' 
+      variables:
+        !reference ['.vars:release', 'variables']
+    - if: '$CI_COMMIT_REF_NAME == $HOTFIX_REF'
+      variables:
+        !reference ['.vars:release', 'variables']
+    # - if: $CI_MERGE_REQUEST_ID
+    # - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master"'
+    #  variables:
+    #    !reference ['.vars:feature', 'variables']
+    #  when: 'never'
+    #
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      variables:
+        !reference ['.vars:test', 'variables']
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == $CI_DEFAULT_BRANCH && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /(feature|bugfix)/' 
+      variables:
+        !reference ['.vars:feature', 'variables']
+    #- if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME != $CI_DEFAULT_BRANCH'
+    #  variables:
+    #    !reference ['.vars:feature', 'variables']
+    #- if: '$CI_MERGE_REQUEST_TITLE =~ /^Revert/'
+    #  variables:
+    #    !reference ['.vars:stg', 'variables']
+    #- if: '$CI_COMMIT_TITLE =~ /^Deploy DEMO/'
+    #  variables:
+    #    !reference ['.vars:demo', 'variables']
+    #- if: '$CI_COMMIT_TITLE =~ /^Deploy TEST/'
+    #  variables:
+    #    !reference ['.vars:test', 'variables']
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    # - if: '$CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH'
+      variables:
+        !reference ['.vars:dev', 'variables']
+    #- if: '$CI_COMMIT_REF_NAME == "demo"'
+    #  variables:
+    #    !reference ['.vars:demo', 'variables']
+    #- if: '$CI_COMMIT_REF_NAME == "qa"'
+    #  variables:
+    #    !reference ['.vars:qa', 'variables']
+    #- if: '$CI_PIPELINE_SOURCE == "pipeline"'
+    #  variables:
+    #    !reference ['.vars:test', 'variables']
+    - if: '$CI_PIPELINE_SOURCE == "parent_pipeline"'
+    #   variables:
+    #    !reference ['.vars:feature', 'variables']
+    #- if: '$CI_COMMIT_BRANCH && $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH && $CI_OPEN_MERGE_REQUESTS == null'
+    - if: '$CI_PIPELINE_SOURCE == "trigger"'
+    #  variables:
+    #    !reference ['.vars:test', 'variables']
+    - when: 'never'

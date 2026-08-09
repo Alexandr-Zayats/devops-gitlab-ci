@@ -1,0 +1,100 @@
+---
+.checkov:
+  stage: 'test'
+  image:
+    name: 'bridgecrew/checkov:3.2.533'
+    entrypoint:
+      - '/usr/bin/env'
+      - 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+  allow_failure: true
+  variables:
+    CHECKOV_DIRECTORY: '.'
+    CHECKOV_FRAMEWORKS: 'all'
+    CHECKOV_DOWNLOAD_EXTERNAL_MODULES: 'false'
+    CHECKOV_CHECK: ''
+    CHECKOV_SKIP_CHECK: ''
+    CHECKOV_EXTRA_ARGS: ''
+  script:
+    - |
+      mkdir -p checkov-report
+
+      checkov_check_args=""
+      if [ -n "${CHECKOV_CHECK}" ]; then
+        checkov_check_args="--check ${CHECKOV_CHECK}"
+      fi
+
+      checkov_skip_check_args=""
+      if [ -n "${CHECKOV_SKIP_CHECK}" ]; then
+        checkov_skip_check_args="--skip-check ${CHECKOV_SKIP_CHECK}"
+      fi
+
+      set +e
+      checkov \
+        --directory "${CHECKOV_DIRECTORY}" \
+        --framework "${CHECKOV_FRAMEWORKS}" \
+        --download-external-modules "${CHECKOV_DOWNLOAD_EXTERNAL_MODULES}" \
+        --skip-results-upload \
+        --compact \
+        ${checkov_check_args} \
+        ${checkov_skip_check_args} \
+        ${CHECKOV_EXTRA_ARGS} \
+        --output cli \
+        --output json \
+        --output junitxml \
+        --output gitlab_sast \
+        --output-file-path \
+          console,checkov-report/checkov.json,checkov-report/checkov-junit.xml,checkov-report/gl-sast-report.json
+      checkov_exit_code=$?
+      set -e
+
+      python3 - <<'PY'
+      import json
+      from pathlib import Path
+
+      report_path = Path("checkov-report/checkov.json")
+      output_path = Path("checkov-report/checkov-failed-checks.json")
+
+      report = json.loads(report_path.read_text())
+      reports = report if isinstance(report, list) else [report]
+
+      failed_reports = []
+      for item in reports:
+          failed_checks = item.get("results", {}).get("failed_checks", [])
+          failed_reports.append({
+              "check_type": item.get("check_type"),
+              "results": {"failed_checks": failed_checks},
+              "summary": {"failed": len(failed_checks)},
+              "url": item.get("url"),
+          })
+
+      output = failed_reports if isinstance(report, list) else failed_reports[0]
+      output_path.write_text(json.dumps(output, indent=2) + "\n")
+      report_path.unlink()
+      PY
+
+      exit "${checkov_exit_code}"
+  artifacts:
+    when: always
+    expire_in: '14 days'
+    expose_as: 'Checkov report'
+    paths:
+      - 'checkov-report/'
+    reports:
+      junit: 'checkov-report/checkov-junit.xml'
+      sast: 'checkov-report/gl-sast-report.json'
+  rules:
+    - if: '$CHECKOV_DISABLED == "true"'
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - when: never
+
+.checkov:terraform:
+  extends: ['.checkov']
+  variables:
+    CHECKOV_FRAMEWORKS: 'terraform,secrets'
+
+.checkov:helm:
+  extends: ['.checkov']
+  variables:
+    CHECKOV_FRAMEWORKS: 'helm,kubernetes,secrets'
+    CHECKOV_SKIP_CHECK: 'CKV_K8S_15,CKV_K8S_21,CKV_K8S_43,CKV_SECRET_6'

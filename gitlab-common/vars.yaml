@@ -1,0 +1,114 @@
+---
+variables:
+  AWS_REGION: 'us-east-1'
+  AWS_DEFAULT_REGION: 'us-east-1'
+  AWS_ECR_REGISTRY: '000000000000.dkr.ecr.us-east-1.amazonaws.com'
+  # AWS_ROLE_ARN: 'arn:aws:iam::${AWS_ACCOUNT_ID}:role/OrganizationAccountAccessRole'
+  AWS_ROLE_ARN: 'arn:aws:iam::${AWS_ACCOUNT_ID}:role/terragrunt'
+  CONTAINER_SUB_PATH: ''
+  CONTAINER_PREFIX: ''
+  PROJECT: 'demo-platform'
+  PARENT_TAG: ''
+  EXT_TAG: ''
+  RELEASE: '01.01'
+
+  GIT_DEPTH: 0
+  GIT_URL: 'gitlab.com'
+  GIT_PATH: 'example-org/cms-team'
+  GIT_SUB_PATH: 'tests'
+  GIT_CI_PATH: 'cicd'
+  GIT_REPO_API_URL: 'https://gitlab.com/api/v4/projects'
+
+  JIRA_WEBHOOK_URL: '${JIRA_WEBHOOK_URL}'
+  JIRA_WEBHOOK_TOKEN: '${JIRA_WEBHOOK_TOKEN}'
+
+  PREF: 'dev'
+  BRANCH_TEMPLATE: '((feature|bugfix|hotfix)/([a-zA-Z]+)-[0-9]{1,7}(-.*$|$)$|release/[0-9]{1,2}\.[0-9]{1,2}|other-[a-zA-Z0-9]+$)'
+  TAG_TEMPLATE: '([0-9]\.[0-9])|(fpm|runner|arm)-([0-9])|(edge|dev|rc|test|stg|prod|kan-[0-9]{1,7})-([0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,8})'
+  # TAG_TEMPLATE: '^(.+)-([0-9]+)\.([0-9]+)\.([0-9]+)$'
+  OFFSET: 0
+  PROD_ENVS: '(prod|stg)'
+  DEPLOY: 'false'
+  DEPLOY_RELEASE: 'false'
+  RUN_TESTS: 'false'
+  CREATE_ENV: 'false'
+  NEW_IMAGE_TAG: 'false'
+  BUILD_IMAGE: 'false'
+  BUILD_RELEASE: 'false'
+  PREPARE_PROD: 'false'
+  FEATURE_REPO: "git@gitserv:example-org/cms-team/features.git"
+  S3_BUCKET: "demo-platform-dev-cms"
+
+  # Terraform / Terragrunt
+  TF_INPUT: 'false'
+  TF_IN_AUTOMATION: 'true'
+  TERRAGRUNT_NON_INTERACTIVE: 'true'
+  TG_WORKING_DIR: ''
+
+.vars:prod:
+  variables:
+    AWS_ACCOUNT_ID: '664418984260'
+    EKS_CLUSTER: 'demo-platform-prod-1'
+    NEW_IMAGE_TAG: 'true'
+    DEPLOY: 'true'
+    RUN_TESTS: 'true'
+    ENV: 'prod'
+
+.vars:stg:
+  variables:
+    AWS_ACCOUNT_ID: '585768168634'
+    EKS_CLUSTER: 'demo-platform-stg-0'
+    NEW_IMAGE_TAG: 'true'
+    DEPLOY: 'true'
+    RUN_TESTS: 'true'
+    ENV: 'stg'
+    PREPARE_PROD: 'true'
+
+.vars:dev:
+  variables:
+    AWS_ACCOUNT_ID: '888577054128'
+    EKS_CLUSTER: 'demo-platform-dev-1'
+    BUILD_IMAGE: 'true'
+    DEPLOY: 'true'
+    RUN_TESTS: 'true'
+    ENV: 'dev'
+
+.vars:test:
+  variables:
+    AWS_ACCOUNT_ID: '888577054128'
+    EKS_CLUSTER: 'demo-platform-test-1'
+    BUILD_IMAGE: 'true'
+    DEPLOY: 'true'
+    RUN_TESTS: 'true'
+    ENV: 'test'
+
+.vars:feature:
+  variables:
+    AWS_ACCOUNT_ID: '888577054128'
+    EKS_CLUSTER: 'demo-platform-dev-1'
+    BUILD_IMAGE: 'true'
+    CREATE_ENV: 'true'
+    RUN_TESTS: 'true'
+    DEPLOY: 'true'
+    ENV: '${CI_COMMIT_REF_SLUG}'
+
+.vars:release:
+  variables:
+    AWS_ACCOUNT_ID: '888577054128'
+    EKS_CLUSTER: 'demo-platform-test-1'
+    BUILD_RELEASE: 'true'
+    BUILD_IMAGE: 'true'
+    DEPLOY: 'true'
+    DEPLOY_RELEASE: 'true'
+    RUN_TESTS: 'true'
+    ENV: 'test'
+
+.vars:service:
+  variables:
+    AWS_ACCOUNT_ID: '000000000000'
+    EKS_CLUSTER: 'demo-platform-tools-1'
+    BUILD_IMAGE: 'true'
+    DEPLOY: 'true'
+    DEPLOY_RELEASE: 'true'
+    RUN_TESTS: 'true'
+    ENV: 'service'

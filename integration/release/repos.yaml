@@ -1,0 +1,25 @@
+repos:
+  'services-api-gateway-front':
+    id: 75964487
+    path: "example-org/services/api-gateway/frontend"
+  'services-api-gateway-back':
+    id: 75964456
+    path: "example-org/services/api-gateway/backend"
+  'services-geo-back':
+    id: 74002059
+    path: "example-org/services/geo-control/backend"
+  'services-notifications':
+    id: 67194925
+    path: "example-org/api/notifications"
+  'frontend-nuxt':
+    id: 65582256
+    path: "example-org/frontend-team/nuxt"
+  'frontend-betting':
+    id: 65582236
+    path: "example-org/frontend-team/betting"
+  'frontend-websockets':
+    id: 61468048
+    path: "example-org/frontend-team/websockets"
+  'backend-cms':
+    id: 61341812
+    path: "example-org/cms-team/cms"
