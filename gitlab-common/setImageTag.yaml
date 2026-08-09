@@ -16,9 +16,8 @@
     - 'echo "📥 Pulling image with tag \"$SOURCE_TAG\"..."'
     - 'docker pull "${IMAGE_NAME}:$SOURCE_TAG"'
 
-    - 'echo "🏷️ Tagging image as\"'${TAG}\"..."'
+    - 'echo "🏷️ Tagging image as ${TAG}..."'
     - 'docker tag "${IMAGE_NAME}:$SOURCE_TAG" "${IMAGE_NAME}:${TAG}"'
 
     - 'echo "🚀 Pushing tagged image to ECR..."'
     - 'docker push "${IMAGE_NAME}:${TAG}"'
-
