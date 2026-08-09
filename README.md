@@ -6,6 +6,12 @@
 
 Reusable GitLab CI components for consistent build, test, release, deployment and notification workflows. The templates centralize delivery conventions while projects keep control of application-specific jobs and protected variables.
 
+## Project profile
+
+Best suited for platform teams creating a consistent delivery contract across
+many application repositories. Pin the include to a reviewed tag or commit and
+enable only the jobs required by the consuming project.
+
 ## Template catalogue
 
 | Area | Examples |
