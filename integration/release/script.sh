@@ -74,7 +74,10 @@ for repo in $(normalize_list "$REPO_LIST"); do
 
   create_mr() {
     local target=$1
-    local title="Release ${VERSION} -> ${target}. Created - $(date +%Y-%m-%d)"
+    local created_at
+    local title
+    created_at=$(date +%Y-%m-%d)
+    title="Release ${VERSION} -> ${target}. Created - ${created_at}"
     if api GET "projects/${project_id}/merge_requests?source_branch=$rel_branch&target_branch=$target" | jq -e 'length > 0' >/dev/null; then
       echo "  = MR $rel_branch -> $target exists; skip"
       return
